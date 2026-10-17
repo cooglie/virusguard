@@ -1,20 +1,41 @@
 # VirusGuard 🛡️
 
-Menüleisten-App für macOS (Intel, ab 10.15 / Catalina), die regelmäßig und in
-**zufälligen Intervallen** das System auf Malware scannt und bei Fund einen
-**nativen Dialog** zeigt, der fragt, ob die Datei in Quarantäne verschoben
-werden soll.
+Menüleisten-App für macOS, die regelmäßig und in **zufälligen Intervallen**
+das System auf Malware scannt und bei Fund einen **nativen Dialog** zeigt, der
+fragt, ob die Datei in Quarantäne verschoben werden soll.
 
 Engine: **ClamAV** (aktiver Signature-Scan) **+ XProtect-Update** im Hintergrund.
 
 ---
 
-## 1. Voraussetzungen
+## ⚡ All-in-One: Bauen & Starten
+
+Ein einziger Befehl installiert ClamAV, aktualisiert die Signaturen, baut die
+App und startet sie:
+
+```bash
+git clone https://github.com/cooglie/virusguard.git && \
+cd virusguard && \
+brew install clamav && \
+freshclam && \
+./build.sh && \
+open build/VirusGuard.app
+```
+
+In der Menüleiste erscheint das 🛡️-Symbol — fertig.
+
+> **Kein Homebrew?** Dann ClamAV manuell installieren
+> ([clamav.net/downloads](https://www.clamav.net/downloads)) und
+> `./build.sh && open build/VirusGuard.app` ausführen.
+
+---
+
+## Voraussetzungen
 
 | Was | Womit |
 |-----|------|
 | macOS | 10.15 Catalina oder neuer |
-| CPU  | Intel (x86_64) – läuft auch auf Apple Silicon via Rosetta |
+| CPU  | Intel (x86_64) & Apple Silicon (arm64) – Universal-Binary |
 | ClamAV | `brew install clamav` |
 | Build-Tools | nur `swiftc` + `codesign` (Xcode Command Line Tools) |
 
@@ -37,10 +58,10 @@ konfiguriert (siehe unten).
 
 ---
 
-## 2. Bauen
+## Bauen
 
 ```bash
-cd VirusGuard
+cd virusguard
 ./build.sh
 ```
 
@@ -58,7 +79,30 @@ In der Menüleiste erscheint das 🛡️-Symbol.
 
 ---
 
-## 3. Konfiguration
+## 🧪 Testvirus (EICAR)
+
+Im Repo liegt eine harmlose Testdatei zum Prüfen, ob der Scan & die Quarantäne
+funktionieren: [`test/eicar_test.txt`](test/eicar_test.txt). Das ist der
+offizielle **EICAR-Standard-Antivirus-Test-String** — keine echte Malware, wird
+aber von jedem Virenscanner (auch ClamAV) als „Eicar-Test-Signatur“ erkannt.
+
+**Testablauf:**
+
+```bash
+# 1. App starten (s.o.)
+# 2. Testdatei in einen gescannten Ordner kopieren (Desktop/Downloads werden per Default gescannt)
+cp test/eicar_test.txt ~/Desktop/
+
+# 3. Sofort scannen: 🛡️-Menü → "Jetzt scannen"
+#    (oder auf den nächsten Timer-Scan warten)
+```
+
+Erwartet: VirusGuard meldet „1 Bedrohung erkannt“, zeigt den Dialog, und nach
+„In Quarantäne verschieben“ liegt die Datei unter `~/Desktop/Quarantine/`.
+
+---
+
+## Konfiguration
 
 Beim ersten Start wird eine Standard-Config erzeugt unter:
 
@@ -75,7 +119,7 @@ Beim ersten Start wird eine Standard-Config erzeugt unter:
 | `scanPaths` | Liste der zu scannenden Pfade (`~` erlaubt) | `~/Downloads`, `~/Desktop` |
 | `clamScanPath` | Pfad zur `clamscan`-Binary | `/usr/local/bin/clamscan` |
 | `clamDatabase` | Eigene DB (leer = ClamAV-Standard) | `""` |
-| `quarantineFolder` | Ziel für verschobene Funde | `~/Library/Application Support/VirusGuard/Quarantine` |
+| `quarantineFolder` | Ziel für verschobene Funde | `~/Desktop/Quarantine` |
 | `triggerXProtectUpdate` | XProtect-Updates im Hintergrund anstoßen | `true` |
 | `scanOnce` | Debug: einmal scannen & beenden | `false` |
 
@@ -88,7 +132,7 @@ Beim ersten Start wird eine Standard-Config erzeugt unter:
   "scanPaths": ["~/Downloads", "~/Desktop", "~/Documents"],
   "clamScanPath": "/usr/local/bin/clamscan",
   "clamDatabase": "",
-  "quarantineFolder": "~/Library/Application Support/VirusGuard/Quarantine",
+  "quarantineFolder": "~/Desktop/Quarantine",
   "triggerXProtectUpdate": true,
   "scanOnce": false
 }
@@ -98,7 +142,7 @@ Nach Änderung: App beenden (🛡️ → **VirusGuard beenden**) und neu starten
 
 ---
 
-## 4. Bei Fund
+## Bei Fund
 
 Sobald ClamAV eine Datei als infiziert meldet, öffnet sich ein Dialog:
 
@@ -120,7 +164,7 @@ Scan zurück auf 🛡️.
 
 ---
 
-## 5. Autostart nach Reboot (optional)
+## Autostart nach Reboot (optional)
 
 Über *Systemeinstellungen → Allgemein → Anmeldeobjekte* die
 `VirusGuard.app` hinzufügen. Alternativ als LaunchAgent:
@@ -136,8 +180,8 @@ cat > ~/Library/LaunchAgents/local.virusguard.plist <<'EOF'
   <key>Label</key><string>local.virusguard</string>
   <key>ProgramArguments</key>
   <array>
-    <string>/open</string>
-    <string>PFAD/ZU/VirusGuard.app</string>
+    <string>/usr/bin/open</string>
+    <string>/PFAD/ZU/VirusGuard.app</string>
   </array>
   <key>RunAtLoad</key><true/>
 </dict>
@@ -146,11 +190,9 @@ EOF
 launchctl load ~/Library/LaunchAgents/local.virusguard.plist
 ```
 
-(Statt `/open` besser: `<string>/usr/bin/open</string>`)
-
 ---
 
-## 6. Architektur / Sicherheit
+## Architektur / Sicherheit
 
 * Kein Dock-Icon, nur Menüleiste (`LSUIElement = true`).
 * Timer läuft mit **nicht-wiederholendem Timer** + Neuplanung nach jedem Scan –
@@ -163,7 +205,7 @@ launchctl load ~/Library/LaunchAgents/local.virusguard.plist
 
 ---
 
-## 7. Disclaimer
+## Disclaimer
 
 VirusGuard ist ein Wrapper um ClamAV und Apples XProtect. Es ersetzt keinen
 echten Echtzeit-Schutz, sondern bietet regelmäßige Stichproben-Scans.
