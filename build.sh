@@ -40,6 +40,11 @@ mkdir -p "$APP_BUNDLE/Contents/MacOS"
 mkdir -p "$APP_BUNDLE/Contents/Resources"
 cp "$BUILD_DIR/$APP_NAME" "$APP_BUNDLE/Contents/MacOS/$APP_NAME"
 cp "$SRC_DIR/Info.plist" "$APP_BUNDLE/Contents/Info.plist"
+# App-Icon ins Bundle kopieren (falls vorhanden)
+if [[ -f "$SRC_DIR/Resources/AppIcon.icns" ]]; then
+    cp "$SRC_DIR/Resources/AppIcon.icns" "$APP_BUNDLE/Contents/Resources/AppIcon.icns"
+    echo "🎨 Icon eingebettet."
+fi
 
 echo "✍️  Codesign (self-sign, ad-hoc) …"
 codesign --force --deep --sign - "$APP_BUNDLE"
