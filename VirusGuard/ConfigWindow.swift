@@ -293,18 +293,22 @@ final class ConfigWindow: NSObject, NSTextFieldDelegate, NSControlTextEditingDel
         config.triggerXProtectUpdate = (xProtectCheckbox.state == .on)
         config.scanOnce = (scanOnceCheckbox.state == .on)
 
-        // Intervalle plausibilisieren
-        if config.minIntervalSeconds < 1 { config.minIntervalSeconds = 1 }
-        if config.maxIntervalSeconds < config.minIntervalSeconds {
-            config.maxIntervalSeconds = config.minIntervalSeconds
-        }
-        if config.scanPaths.isEmpty {
-            config.scanPaths = ["~/Downloads"]
-        }
-
+        // Validierung + Kanonisierung (sichere Defaults, Überschneidungs-Prüfung).
+        let warnings = config.validate()
         config.save()
         onComplete(config)
         panel.orderOut(nil)
+
+        // Warnungen anzeigen, damit der Nutzer versteht, was korrigiert wurde.
+        if !warnings.isEmpty {
+            let alert = NSAlert()
+            alert.alertStyle = .warning
+            alert.messageText = "Konfiguration wurde angepasst"
+            alert.informativeText = warnings.joined(separator: "\n")
+            alert.addButton(withTitle: "OK")
+            NSApp.activate(ignoringOtherApps: true)
+            _ = alert.runModal()
+        }
     }
 
     @objc private func cancel() {

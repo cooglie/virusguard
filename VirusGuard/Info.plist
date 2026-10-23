@@ -7,9 +7,9 @@
     <key>CFBundleIdentifier</key>
     <string>local.virusguard.app</string>
     <key>CFBundleVersion</key>
-    <string>1</string>
+    <string>11</string>
     <key>CFBundleShortVersionString</key>
-    <string>1.0</string>
+    <string>1.1</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleExecutable</key>
@@ -17,7 +17,7 @@
     <key>CFBundleIconFile</key>
     <string>AppIcon</string>
     <key>LSMinimumSystemVersion</key>
-    <string>10.15</string>
+    <string>11.0</string>
     <!-- Menüleisten-App: kein Dock-Icon, kein Menü -->
     <key>LSUIElement</key>
     <true/>

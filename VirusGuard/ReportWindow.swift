@@ -8,8 +8,11 @@ final class ReportWindow {
     private let panel: NSPanel
 
     /// Callback für jede Fund-Aktion. Wird auf dem Main-Thread aufgerufen.
-    var onQuarantine: ((String) -> Bool)?
+    /// Liefert (Pfad, Signatur) – der QuarantineManager braucht beides.
+    var onQuarantine: ((String, String) -> Bool)?
     var onDelete: ((String) -> Bool)?
+    /// Meldung bei Quarantäne-Fehlern (TOCTOU, Symlink etc.) zur Anzeige.
+    var onQuarantineMessage: ((String) -> Void)?
 
     /// Aktuelle Funde (Pfad + Signatur), ggf. mit Status aktualisiert.
     struct FindingRow {
@@ -55,19 +58,30 @@ final class ReportWindow {
         container.translatesAutoresizingMaskIntoConstraints = false
 
         // Kopf: Status-Icon + Überschrift
-        let icon = NSTextField(labelWithString: result.findings.isEmpty ? "✅" : "⚠️")
+        let iconChar: String
+        switch result.status {
+        case .clean: iconChar = "✅"
+        case .infected: iconChar = "⚠️"
+        case .scanError: iconChar = "⚠️"
+        case .engineError: iconChar = "🚫"
+        }
+        let icon = NSTextField(labelWithString: iconChar)
         icon.font = .systemFont(ofSize: 40)
         icon.translatesAutoresizingMaskIntoConstraints = false
 
         let titleText: String
         let subtitleText: String
-        if !result.findings.isEmpty {
+        switch result.status {
+        case .infected:
             titleText = "\(result.findings.count) Bedrohung\(result.findings.count == 1 ? "" : "en") erkannt"
             subtitleText = "Bitte überprüfe die Funde und wähle eine Aktion."
-        } else if result.engineError != nil {
-            titleText = "Scan fehlgeschlagen"
-            subtitleText = result.engineError!
-        } else {
+        case .engineError(let msg):
+            titleText = "Scan konnte nicht gestartet werden"
+            subtitleText = msg
+        case .scanError(let msg):
+            titleText = "Scan nicht erfolgreich abgeschlossen"
+            subtitleText = msg
+        case .clean:
             titleText = "Keine Bedrohungen gefunden"
             subtitleText = "Dein System ist sauber."
         }
@@ -203,11 +217,13 @@ final class ReportWindow {
     private func actOnRow(_ index: Int, action: Action) {
         guard index >= 0, index < rows.count else { return }
         let path = rows[index].path
+        let sig = rows[index].signature
 
         switch action {
         case .quarantine:
-            let ok = onQuarantine?(path) ?? false
+            let ok = onQuarantine?(path, sig) ?? false
             rows[index].status = ok ? "✅ In Quarantäne" : "❌ Fehler"
+            if !ok { onQuarantineMessage?("Datei konnte nicht quarantäniert werden (evtl. verändert oder Symlink).") }
         case .delete:
             let alert = NSAlert()
             alert.alertStyle = .critical
@@ -229,10 +245,16 @@ final class ReportWindow {
     }
 
     @objc private func quarantineAll() {
+        var failures: [String] = []
         for i in 0..<rows.count where rows[i].status == "offen" {
             let path = rows[i].path
-            let ok = onQuarantine?(path) ?? false
+            let sig = rows[i].signature
+            let ok = onQuarantine?(path, sig) ?? false
             rows[i].status = ok ? "✅ In Quarantäne" : "❌ Fehler"
+            if !ok { failures.append((path as NSString).lastPathComponent) }
+        }
+        if !failures.isEmpty {
+            onQuarantineMessage?("\(failures.count) Datei(en) konnten nicht quarantäniert werden: \(failures.joined(separator: ", "))")
         }
         tableView?.reloadData()
     }
@@ -365,17 +387,35 @@ private final class FindingDelegate: NSObject, NSTableViewDelegate {
 // MARK: - Quarantine / Delete helper (auf Scanner delegiert)
 
 extension ReportWindow {
-    /// Convenience: führt Quarantäne über Scanner aus.
-    func wireActions(scanner: Scanner) {
-        onQuarantine = { path in scanner.quarantine(file: path) }
+    /// Convenience: verdrahtet Quarantäne/Löschen über Scanner + QuarantineManager.
+    /// Der Manager prüft Datei-Identität, verhindert Überschreiben und protokolliert.
+    func wireActions(scanner: Scanner, quarantineManager: QuarantineManager) {
+        onQuarantine = { path, signature in
+            scanner.quarantine(file: path, signature: signature)
+        }
+        onQuarantineMessage = { msg in
+            let alert = NSAlert()
+            alert.alertStyle = .warning
+            alert.messageText = "Quarantäne nicht möglich"
+            alert.informativeText = msg
+            alert.addButton(withTitle: "OK")
+            NSApp.activate(ignoringOtherApps: true)
+            _ = alert.runModal()
+        }
+        // Löschen läuft ebenfalls über den Manager (protokolliert + sicher).
         onDelete = { path in
-            do {
-                try FileManager.default.removeItem(atPath: path)
-                return true
-            } catch {
-                NSLog("[VirusGuard] Löschen fehlgeschlagen: \(error.localizedDescription)")
-                return false
+            let result = quarantineManager.delete(quarantinedPath: path)
+            if !result.success {
+                // Falls noch nicht in Quarantäne: direkt löschen versuchen.
+                do {
+                    try FileManager.default.removeItem(atPath: path)
+                    return true
+                } catch {
+                    NSLog("[VirusGuard] Löschen fehlgeschlagen: \(error.localizedDescription)")
+                    return false
+                }
             }
+            return result.success
         }
     }
 }
